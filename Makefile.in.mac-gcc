@@ -7,16 +7,17 @@ FC=gfortran-10
 LD=$(FC)
 
 # Python (for plotting)
-PYTHON=python
+PYTHON=python3
 
 # Compiler optimization flags.  You will definitely want to play with these!
 OPTFLAGS = -O3 
-CFLAGS = -std=gnu99 
+CFLAGS = -std=gnu99 -Wfatal-errors -mavx -march=native
 FFLAGS =
 LDFLAGS = -fopenmp
 
 # Add -DDEBUG_RUN to CPPFLAGS to cut down on the cases.
 CPPFLAGS = "-DCOMPILER=\"$(CC)\"" "-DFLAGS=\"$(OPTFLAGS)\""
+#CPPFLAGS = "-DCOMPILER=\"$(CC)\"" "-DFLAGS=\"$(OPTFLAGS)\"" "-DDEBUG_RUN"
 
 # Compile a C version (using basic_dgemm.c, in this case):
 LIBS = -lm
