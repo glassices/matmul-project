@@ -4,56 +4,62 @@
 
 const char* dgemm_desc = "An implementation of GotoBlas";
 
-const int kc = 16;
-const int step_j = 8;
+const int kc = 8;
+const int step_j = 16;
 
 void square_dgemm(const int M, double *A, double *B, double *C)
 {
     int i, j, j1, k, k1, KC, MC;
-    register __m256d c;
+    register __m256d c0, c1;
     register __m256d b;
-    __m256d a[kc];
-    __m256d *p_a;
+    __m256d a0[kc], a1[kc];
+    __m256d *p_a0, *p_a1;
     double *p_B;
 
     for (k = 0; k < M; k += kc) {
         KC = M - k < kc ? M - k : kc;
         for (j = 0; j < M; j += step_j) {
-            for (i = 0; i < M / 4 * 4; i += 4) {
-                for (k1 = 0; k1 < kc; k1++)
-                    a[k1] = _mm256_loadu_pd(A + (k + k1) * M + i);
+            for (i = 0; i < M / 8 * 8; i += 8) {
+                for (k1 = 0; k1 < kc; k1++) {
+                    a0[k1] = _mm256_loadu_pd(A + (k + k1) * M + i);
+                    a1[k1] = _mm256_loadu_pd(A + (k + k1) * M + i + 4);
+                }
                 for (j1 = j; j1 < j + step_j && j1 < M; j1++) {
-                    c = _mm256_loadu_pd(C + j1 * M + i);
-                    for (k1 = 0, p_B = B + j1 * M + k + k1, p_a = a; k1 < KC; k1++) {
+                    c0 = _mm256_loadu_pd(C + j1 * M + i);
+                    c1 = _mm256_loadu_pd(C + j1 * M + i + 4);
+                    for (k1 = 0, p_B = B + j1 * M + k + k1, p_a0 = a0, p_a1 = a1; k1 < KC; k1++) {
                         b = _mm256_set1_pd(*(p_B++));
-                        c = _mm256_fmadd_pd(*(p_a++), b, c);
+                        c0 = _mm256_fmadd_pd(*(p_a0++), b, c0);
+                        c1 = _mm256_fmadd_pd(*(p_a1++), b, c1);
                     }
-                    _mm256_storeu_pd(C + j1 * M + i, c);
+                    _mm256_storeu_pd(C + j1 * M + i, c0);
+                    _mm256_storeu_pd(C + j1 * M + i + 4, c1);
                 }
             }
             /*
-            if (M % 4) {
-                i = M / 4 * 4;
-                for (k1 = 0; k1 < kc; k1++)
-                    a[k1] = _mm256_loadu_pd(A + (k + k1) * M + i);
-                for (j1 = j; j1 < j + 4 && j1 < M; j1++) {
-                    c = _mm256_loadu_pd(C + j1 * M + i);
-                    for (k1 = 0, p_B = B + j1 * M + k + k1, p_a = a; k1 < KC; k1++) {
+            if (M % 8) {
+                i = M / 8 * 8;
+                for (k1 = 0; k1 < kc; k1++) {
+                    a0[k1] = _mm256_loadu_pd(A + (k + k1) * M + i);
+                    a1[k1] = _mm256_loadu_pd(A + (k + k1) * M + i + 4);
+                }
+                for (j1 = j; j1 < j + step_j && j1 < M; j1++) {
+                    c0 = _mm256_loadu_pd(C + j1 * M + i);
+                    c1 = _mm256_loadu_pd(C + j1 * M + i + 4);
+                    for (k1 = 0, p_B = B + j1 * M + k + k1, p_a0 = a0, p_a1 = a1; k1 < KC; k1++) {
                         b = _mm256_set1_pd(*(p_B++));
-                        c = _mm256_fmadd_pd(*(p_a++), b, c);
+                        c0 = _mm256_fmadd_pd(*(p_a0++), b, c0);
+                        c1 = _mm256_fmadd_pd(*(p_a1++), b, c1);
                     }
-                    if (i + 3 == M) {
-                        *(C + j1 * M + i) = c[0];
-                        *(C + j1 * M + i + 1) = c[1];
-                        *(C + j1 * M + i + 2) = c[2];
-                    }
-                    else if (i + 2 == M) {
-                        *(C + j1 * M + i) = c[0];
-                        *(C + j1 * M + i + 1) = c[1];
-                    }
-                    else {
-                        *(C + j1 * M + i) = c[0];
-                    }
+                    for (k1 = 0; k1 < 4; k1++)
+                        if (i + k1 < M) {
+                            *(C + j1 * M + i + k1) = c0[k1];
+                        }
+                    for (k1 = 0; k1 < 4; k1++)
+                        if (i + k1 + 4 < M) {
+                            *(C + j1 * M + i + k1 + 4) = c1[k1];
+                        }
+                    
                 }
             }
             */
