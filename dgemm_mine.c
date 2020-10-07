@@ -1,125 +1,147 @@
 #include <immintrin.h>
-#include <string.h>
-#include <stdint.h>
-#include <math.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <time.h>
 
-const char* dgemm_desc = "This project is too hard.";
+const char* dgemm_desc = "An implementation of GotoBlas";
 
-#if !defined(BLOCK_SIZE)
-  #define BLOCK_SIZE 32
-#endif
+const int kc = 8;
+const int mc = 1024;
+int aa = 0;
 
-#define min(a,b) (((a) < (b))? (a) : (b))
-
-void *aligned_malloc(size_t align, size_t size) {
-    void *mem = malloc(size+align+sizeof(void*));
-    void **ptr = (void**)((uintptr_t)(mem+align+sizeof(void*)) & ~(align-1));
-    ptr[-1] = mem;
-    return ptr;
-}
-
-void aligned_free(void *ptr) {
-    free(((void**)ptr)[-1]);
-}
-
-void do_block(int lda, int K, double* restrict A, double* restrict B, double* restrict C)
+void square_dgemm(const int M, double *A, double *B, double *C)
 {
-    __builtin_assume_aligned(A, 32);
-    __builtin_assume_aligned(B, 32);
-    __builtin_assume_aligned(C, 32);
+    int i, i1, j, j1, k, k1, KC, MC;
+    register __m256d c;
+    register __m256d b;
+    __m256d a[kc];
+    __m256d *p_a;
+    double *p_B;
 
-    int i, j, k;
-    __m256d a0, a4, b, c0_0, c0_1, c0_2, c0_3, c4_0, c4_1, c4_2, c4_3;
-    double *B_kj, *C_ij;
-    for (j = 0; j < BLOCK_SIZE; j += 4)
-        for (i = 0; i < BLOCK_SIZE; i += 8) {
-            C_ij = C + j * lda + i;
-            c0_0 = _mm256_load_pd(C_ij);
-            c4_0 = _mm256_load_pd(C_ij + 4);
-            c0_1 = _mm256_load_pd(C_ij + lda);
-            c4_1 = _mm256_load_pd(C_ij + lda + 4);
-            c0_2 = _mm256_load_pd(C_ij + lda * 2);
-            c4_2 = _mm256_load_pd(C_ij + lda * 2 + 4);
-            c0_3 = _mm256_load_pd(C_ij + lda * 3);
-            c4_3 = _mm256_load_pd(C_ij + lda * 3 + 4);
-            for (k = 0; k < K; k++) {
-                a0 = _mm256_load_pd(A + k * lda + i);
-                a4 = _mm256_load_pd(A + k * lda + i + 4);
-                B_kj = B + j * lda + k;
-                b = _mm256_set1_pd(*B_kj);
-                c0_0 = _mm256_fmadd_pd(a0, b, c0_0);
-                c4_0 = _mm256_fmadd_pd(a4, b, c4_0);
-                b = _mm256_set1_pd(*(B_kj + lda));
-                c0_1 = _mm256_fmadd_pd(a0, b, c0_1);
-                c4_1 = _mm256_fmadd_pd(a4, b, c4_1);
-                b = _mm256_set1_pd(*(B_kj + lda * 2));
-                c0_2 = _mm256_fmadd_pd(a0, b, c0_2);
-                c4_2 = _mm256_fmadd_pd(a4, b, c4_2);
-                b = _mm256_set1_pd(*(B_kj + lda * 3));
-                c0_3 = _mm256_fmadd_pd(a0, b, c0_3);
-                c4_3 = _mm256_fmadd_pd(a4, b, c4_3);
-            }
-            _mm256_store_pd(C_ij, c0_0);
-            _mm256_store_pd(C_ij + 4, c4_0);
-            _mm256_store_pd(C_ij + lda, c0_1);
-            _mm256_store_pd(C_ij + lda + 4, c4_1);
-            _mm256_store_pd(C_ij + lda * 2, c0_2);
-            _mm256_store_pd(C_ij + lda * 2 + 4, c4_2);
-            _mm256_store_pd(C_ij + lda * 3, c0_3);
-            _mm256_store_pd(C_ij + lda * 3 + 4, c4_3);
+    for (k = 0; k < M; k += kc) {
+        KC = M - k < kc ? M - k : kc;
+        for (i = 0; i < M; i += mc) {
+            MC = M - i < mc ? M - i : mc;
+            for (j = 0; j < M; j += 4)
+                for (i1 = i; i1 < i + MC; i1 += 4) {
+                    for (k1 = 0; k1 < kc; k1++)
+                        a[k1] = _mm256_loadu_pd(A + (k + k1) * M + i1);
+                    if (i1 + 4 <= i + MC) {
+                        for (j1 = j; j1 < j + 4 && j1 < M; j1++) {
+                            c = _mm256_loadu_pd(C + j1 * M + i1);
+                            for (k1 = 0, p_B = B + j1 * M + k + k1, p_a = a; k1 < KC; k1++) {
+                                b = _mm256_set1_pd(*(p_B++));
+                                c = _mm256_fmadd_pd(*(p_a++), b, c);
+                                aa++;
+                            }
+                            _mm256_storeu_pd(C + j1 * M + i1, c);
+                        }
+                    }
+                    else if (i1 + 3 == i + MC) {
+                        for (j1 = j; j1 < j + 4 && j1 < M; j1++) {
+                            c = _mm256_loadu_pd(C + j1 * M + i1);
+                            for (k1 = 0, p_B = B + j1 * M + k + k1, p_a = a; k1 < KC; k1++) {
+                                b = _mm256_set1_pd(*(p_B++));
+                                c = _mm256_fmadd_pd(*(p_a++), b, c);
+                                aa++;
+                            }
+                            *(C + j1 * M + i1) = c[0];
+                            *(C + j1 * M + i1 + 1) = c[1];
+                            *(C + j1 * M + i1 + 2) = c[2];
+                        }
+                    }
+                    else if (i1 + 2 == i + MC) {
+                        for (j1 = j; j1 < j + 4 && j1 < M; j1++) {
+                            c = _mm256_loadu_pd(C + j1 * M + i1);
+                            for (k1 = 0, p_B = B + j1 * M + k + k1, p_a = a; k1 < KC; k1++) {
+                                b = _mm256_set1_pd(*(p_B++));
+                                c = _mm256_fmadd_pd(*(p_a++), b, c);
+                                aa++;
+                            }
+                            *(C + j1 * M + i1) = c[0];
+                            *(C + j1 * M + i1 + 1) = c[1];
+                        }
+                    }
+                    else {
+                        for (j1 = j; j1 < j + 4 && j1 < M; j1++) {
+                            c = _mm256_loadu_pd(C + j1 * M + i1);
+                            for (k1 = 0, p_B = B + j1 * M + k + k1, p_a = a; k1 < KC; k1++) {
+                                b = _mm256_set1_pd(*(p_B++));
+                                c = _mm256_fmadd_pd(*(p_a++), b, c);
+                                aa++;
+                            }
+                            *(C + j1 * M + i1) = c[0];
+                        }
+                    }
+
+                    /*
+                    for (k1 = 0; k1 < KC; k1++)
+                        a[k1] = _mm256_loadu_pd(A + (k + k1) * M + i1);
+                    for (j1 = j; j1 < j + 4 && j1 < M; j1++) {
+                        c = _mm256_loadu_pd(C + j1 * M + i1);
+                        for (k1 = 0, p_B = B + j1 * M + k + k1, p_a = a; k1 < KC; k1++) {
+                            b = _mm256_set1_pd(*(p_B++));
+                            c = _mm256_fmadd_pd(*(p_a++), b, c);
+                            aa++;
+                        }
+                        if (i1 + 4 <= i + MC)
+                            _mm256_storeu_pd(C + j1 * M + i1, c);
+                        else if (i1 + 3 == i + MC) {
+                            *(C + j1 * M + i1) = c[0];
+                            *(C + j1 * M + i1 + 1) = c[1];
+                            *(C + j1 * M + i1 + 2) = c[2];
+                        }
+                        else if (i1 + 2 == i + MC) {
+                            *(C + j1 * M + i1) = c[0];
+                            *(C + j1 * M + i1 + 1) = c[1];
+                        }
+                        else
+                            *(C + j1 * M + i1) = c[0];
+                    }
+                    */
+                }
         }
-}
-
-
-void square_dgemm (const int raw_lda, const double* rawA, const double* rawB, double* rawC)
-{
-    clock_t start;
-
-    //start = clock();
-    int lda = ((raw_lda - 1) / BLOCK_SIZE + 1) * BLOCK_SIZE;
-    double *A = aligned_malloc(BLOCK_SIZE, sizeof(double) * lda * lda * 3);
-    double *B = A + (size_t)lda * lda;
-    double *C = B + (size_t)lda * lda;
-    for (int i = 0; i < raw_lda; i++) {
-        memcpy(A + i * lda, rawA + i * raw_lda, sizeof(double) * raw_lda);
-        memcpy(B + i * lda, rawB + i * raw_lda, sizeof(double) * raw_lda);
-        memcpy(C + i * lda, rawC + i * raw_lda, sizeof(double) * raw_lda);
     }
-    //printf("%u\n", clock() - start);
-
-
-    //start = clock();
-    for (int i = 0; i < lda; i += BLOCK_SIZE)
-        for (int j = 0; j < lda; j += BLOCK_SIZE)
-            for (int k = 0; k < lda; k += BLOCK_SIZE)
-                do_block(lda, min(BLOCK_SIZE, raw_lda - k), A + i + k*lda, B + k + j*lda, C + i + j*lda);
-    //printf("%u\n", clock() - start);
-
-        
-    //start = clock();
-
-    for (int j = 0; j < raw_lda; j++)
-        memcpy(rawC + j * raw_lda, C + j * lda, sizeof(double) * raw_lda);
-
-    //printf("%u\n", clock() - start);
-    aligned_free(A);
 }
 
-/*
 int main()
 {
-    int n = 1000;
-    double *A = malloc(sizeof(double) * 1400 * 1400);
-    double *B = malloc(sizeof(double) * 1400 * 1400);
-    double *C = malloc(sizeof(double) * 1400 * 1400);
+    clock_t start;
+    start = clock();
+
+
+    /*
+    register __m256d a, b, c;
+    double sum = 0;
+    int i, j;
+    for (i = 0; i < 843750000; i++) {
+        b = _mm256_set1_pd(1.0);
+        c = _mm256_fmadd_pd(a, b, c);
+    }
+    printf("%lf\n", c[0]);
+    printf("%u\n", clock() - start);
+    */
+
+    /*
+    register double a, b, c;
+    for (int i = 0; i < 843750000; i++)
+        c = a * b + c;
+    printf("%lf\n", c);
+    printf("%u\n", clock() - start);
+    */
+
+
+    int n = 1500;
+    double *A = malloc(sizeof(double) * n * n);
+    double *B = malloc(sizeof(double) * n * n);
+    double *C = malloc(sizeof(double) * n * n);
     square_dgemm(n, A, B, C);
     free(A);
     free(B);
     free(C);
+    printf("%u\n", clock() - start);
+    printf("%d\n", aa);
 
     return 0;
 }
-*/
+
+
