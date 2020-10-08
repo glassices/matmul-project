@@ -4,7 +4,7 @@
 
 const char* dgemm_desc = "An implementation of GotoBlas";
 
-const int kc = 8;
+const int kc = 7;
 const int step_j = 16;
 
 void square_dgemm(const int M, double *A, double *B, double *C)
@@ -12,13 +12,12 @@ void square_dgemm(const int M, double *A, double *B, double *C)
     int i, j, j1, k, k1, KC, MC;
     register __m256d c0, c1;
     register __m256d b;
-    __m256d a0[kc], a1[kc];
-    __m256d *p_a0, *p_a1;
-    double *p_B;
 
-    for (k = 0; k < M; k += kc) {
-        KC = M - k < kc ? M - k : kc;
-        for (j = 0; j < M; j += step_j) {
+    __m256d a0[kc], a1[kc];
+
+    for (j = 0; j < M; j += step_j) {
+        for (k = 0; k < M; k += kc) {
+            KC = M - k < kc ? M - k : kc;
             for (i = 0; i < M / 8 * 8; i += 8) {
                 for (k1 = 0; k1 < kc; k1++) {
                     a0[k1] = _mm256_loadu_pd(A + (k + k1) * M + i);
@@ -27,16 +26,15 @@ void square_dgemm(const int M, double *A, double *B, double *C)
                 for (j1 = j; j1 < j + step_j && j1 < M; j1++) {
                     c0 = _mm256_loadu_pd(C + j1 * M + i);
                     c1 = _mm256_loadu_pd(C + j1 * M + i + 4);
-                    for (k1 = 0, p_B = B + j1 * M + k + k1, p_a0 = a0, p_a1 = a1; k1 < KC; k1++) {
-                        b = _mm256_set1_pd(*(p_B++));
-                        c0 = _mm256_fmadd_pd(*(p_a0++), b, c0);
-                        c1 = _mm256_fmadd_pd(*(p_a1++), b, c1);
+                    for (k1 = 0; k1 < KC; k1++) {
+                        b = _mm256_set1_pd(*(B + j1 * M + k + k1));
+                        c0 = _mm256_fmadd_pd(a0[k1], b, c0);
+                        c1 = _mm256_fmadd_pd(a1[k1], b, c1);
                     }
                     _mm256_storeu_pd(C + j1 * M + i, c0);
                     _mm256_storeu_pd(C + j1 * M + i + 4, c1);
                 }
             }
-            /*
             if (M % 8) {
                 i = M / 8 * 8;
                 for (k1 = 0; k1 < kc; k1++) {
@@ -46,31 +44,27 @@ void square_dgemm(const int M, double *A, double *B, double *C)
                 for (j1 = j; j1 < j + step_j && j1 < M; j1++) {
                     c0 = _mm256_loadu_pd(C + j1 * M + i);
                     c1 = _mm256_loadu_pd(C + j1 * M + i + 4);
-                    for (k1 = 0, p_B = B + j1 * M + k + k1, p_a0 = a0, p_a1 = a1; k1 < KC; k1++) {
-                        b = _mm256_set1_pd(*(p_B++));
-                        c0 = _mm256_fmadd_pd(*(p_a0++), b, c0);
-                        c1 = _mm256_fmadd_pd(*(p_a1++), b, c1);
+                    for (k1 = 0; k1 < KC; k1++) {
+                        b = _mm256_set1_pd(*(B + j1 * M + k + k1));
+                        c0 = _mm256_fmadd_pd(a0[k1], b, c0);
+                        c1 = _mm256_fmadd_pd(a1[k1], b, c1);
                     }
                     for (k1 = 0; k1 < 4; k1++)
-                        if (i + k1 < M) {
+                        if (i + k1 < M)
                             *(C + j1 * M + i + k1) = c0[k1];
-                        }
                     for (k1 = 0; k1 < 4; k1++)
-                        if (i + k1 + 4 < M) {
+                        if (i + k1 + 4 < M)
                             *(C + j1 * M + i + k1 + 4) = c1[k1];
-                        }
-                    
                 }
             }
-            */
         }
     }
 }
 
+#if 0
 int main()
 {
     clock_t start;
-    start = clock();
 
 
     /*
@@ -94,16 +88,18 @@ int main()
     */
 
 
-    int n = 1500;
+    int n = 1600;
     double *A = malloc(sizeof(double) * n * n);
     double *B = malloc(sizeof(double) * n * n);
     double *C = malloc(sizeof(double) * n * n);
+    start = clock();
     square_dgemm(n, A, B, C);
+    printf("%u\n", clock() - start);
     free(A);
     free(B);
     free(C);
-    printf("%u\n", clock() - start);
 
     return 0;
 }
 
+#endif
